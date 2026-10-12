@@ -133,3 +133,32 @@ class UnityTetherClient:
         result = self.call("screenshot", {"width": width, "height": height})
         png = base64.b64decode(result["base64"])
         return result, png
+
+    # -- scene / object control --------------------------------------------
+    def create_object(self, name="GameObject", primitive=None, components=None, position=None, rotation=None, scale=None, parent=None) -> object:
+        params: dict = {"name": name}
+        if primitive is not None:
+            params["primitive"] = primitive
+        if components:
+            params["components"] = components
+        if position is not None:
+            params["position"] = position
+        if rotation is not None:
+            params["rotation"] = rotation
+        if scale is not None:
+            params["scale"] = scale
+        if parent is not None:
+            params["parent"] = parent
+        return self.call("create_object", params)
+
+    def find_objects(self, name: str) -> object:
+        return self.call("find_objects", {"name": name})
+
+    def modify_object(self, obj, **changes) -> object:
+        return self.call("modify_object", {"object": obj, **changes})
+
+    def delete_object(self, obj) -> object:
+        return self.call("delete_object", {"object": obj})
+
+    def get_scene(self) -> object:
+        return self.call("get_scene", {})

@@ -209,6 +209,31 @@ namespace UnityTether
                         response["result"] = CaptureScreenshot(request.Params);
                         break;
 
+                    case "create_object":
+                        response["ok"] = true;
+                        response["result"] = CreateObject(request.Params);
+                        break;
+
+                    case "find_objects":
+                        response["ok"] = true;
+                        response["result"] = FindObjects(request.Params);
+                        break;
+
+                    case "modify_object":
+                        response["ok"] = true;
+                        response["result"] = ModifyObject(request.Params);
+                        break;
+
+                    case "delete_object":
+                        response["ok"] = true;
+                        response["result"] = DeleteObject(request.Params);
+                        break;
+
+                    case "get_scene":
+                        response["ok"] = true;
+                        response["result"] = GetSceneSummary();
+                        break;
+
                     default:
                         response["ok"] = false;
                         response["error"] = $"unknown method: {request.Method}";
@@ -475,6 +500,212 @@ namespace UnityTether
                 if (rt != null) { rt.Release(); UnityEngine.Object.DestroyImmediate(rt); }
                 if (tempGo != null) UnityEngine.Object.DestroyImmediate(tempGo);
             }
+        }
+
+        // ------------------------------------------------------------------
+        // Scene / object control.
+        // ------------------------------------------------------------------
+        private static JObject CreateObject(JToken p)
+        {
+            var name = p?["name"]?.Value<string>() ?? "GameObject";
+            var primitive = p?["primitive"]?.Value<string>();
+
+            GameObject go;
+            if (!string.IsNullOrEmpty(primitive))
+            {
+                if (!Enum.TryParse(primitive, true, out PrimitiveType pt))
+                    throw new Exception($"unknown primitive: {primitive}");
+                go = GameObject.CreatePrimitive(pt);
+                go.name = name;
+            }
+            else
+            {
+                go = new GameObject(name);
+            }
+
+            var position = p?["position"];
+            if (position != null && position.Type != JTokenType.Null)
+                go.transform.position = ParseVector3(position);
+            var rotation = p?["rotation"];
+            if (rotation != null && rotation.Type != JTokenType.Null)
+                go.transform.eulerAngles = ParseVector3(rotation);
+            var scale = p?["scale"];
+            if (scale != null && scale.Type != JTokenType.Null)
+                go.transform.localScale = ParseVector3(scale);
+
+            if (p?["components"] is JArray components)
+            {
+                foreach (var token in components)
+                {
+                    var type = ResolveType(token.Value<string>());
+                    if (type == null || !typeof(Component).IsAssignableFrom(type))
+                        throw new Exception($"not a Component type: {token.Value<string>()}");
+                    go.AddComponent(type);
+                }
+            }
+
+            var parent = ResolveGameObject(p?["parent"]);
+            if (parent != null)
+                go.transform.SetParent(parent.transform, false);
+
+            return BuildObjectInfo(go);
+        }
+
+        private static JObject FindObjects(JToken p)
+        {
+            var name = p?["name"]?.Value<string>();
+            if (string.IsNullOrEmpty(name))
+                throw new Exception("find_objects requires 'name'");
+
+            var results = new JArray();
+            foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
+                CollectByName(root.transform, name, results);
+
+            return new JObject { ["objects"] = results };
+        }
+
+        private static void CollectByName(Transform t, string name, JArray results)
+        {
+            if (t.name == name)
+                results.Add(BuildObjectInfo(t.gameObject));
+            foreach (Transform child in t)
+                CollectByName(child, name, results);
+        }
+
+        private static JObject ModifyObject(JToken p)
+        {
+            var go = ResolveGameObject(p?["object"]);
+            if (go == null)
+                throw new Exception("modify_object: object not found");
+
+            var position = p?["position"];
+            if (position != null && position.Type != JTokenType.Null)
+                go.transform.position = ParseVector3(position);
+            var rotation = p?["rotation"];
+            if (rotation != null && rotation.Type != JTokenType.Null)
+                go.transform.eulerAngles = ParseVector3(rotation);
+            var scale = p?["scale"];
+            if (scale != null && scale.Type != JTokenType.Null)
+                go.transform.localScale = ParseVector3(scale);
+            if (p?["active"] != null)
+                go.SetActive(p["active"].Value<bool>());
+            if (p?["name"] != null)
+                go.name = p["name"].Value<string>();
+
+            return BuildObjectInfo(go);
+        }
+
+        private static JObject DeleteObject(JToken p)
+        {
+            var go = ResolveGameObject(p?["object"]);
+            if (go == null)
+                throw new Exception("delete_object: object not found");
+
+            var info = BuildObjectInfo(go);
+            UnityEngine.Object.DestroyImmediate(go);
+            return new JObject { ["deleted"] = true, ["object"] = info };
+        }
+
+        private static JObject GetSceneSummary()
+        {
+            var scene = SceneManager.GetActiveScene();
+            var roots = scene.GetRootGameObjects();
+            var rootList = new JArray();
+            foreach (var root in roots)
+                rootList.Add(BuildObjectInfo(root));
+
+            return new JObject
+            {
+                ["name"] = scene.name,
+                ["path"] = scene.path,
+                ["rootCount"] = roots.Length,
+                ["roots"] = rootList,
+            };
+        }
+
+        private static GameObject ResolveGameObject(JToken reference)
+        {
+            if (reference == null || reference.Type == JTokenType.Null)
+                return null;
+
+            if (reference.Type == JTokenType.Integer)
+                return EditorUtility.InstanceIDToObject(reference.Value<int>()) as GameObject;
+
+            var obj = reference as JObject;
+            if (obj == null)
+                return null;
+
+            if (obj["id"] != null)
+                return EditorUtility.InstanceIDToObject(obj["id"].Value<int>()) as GameObject;
+
+            if (obj["path"] != null)
+                return ResolveByPath(obj["path"].Value<string>());
+
+            if (obj["name"] != null)
+                return GameObject.Find(obj["name"].Value<string>());
+
+            return null;
+        }
+
+        private static GameObject ResolveByPath(string path)
+        {
+            var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return null;
+
+            foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
+            {
+                if (root.name != parts[0])
+                    continue;
+
+                var current = root.transform;
+                var matched = true;
+                for (var i = 1; i < parts.Length; i++)
+                {
+                    Transform next = null;
+                    foreach (Transform child in current)
+                    {
+                        if (child.name == parts[i]) { next = child; break; }
+                    }
+                    if (next == null) { matched = false; break; }
+                    current = next;
+                }
+                if (matched)
+                    return current.gameObject;
+            }
+            return null;
+        }
+
+        private static JObject BuildObjectInfo(GameObject go)
+        {
+            var components = new JArray();
+            foreach (var component in go.GetComponents<Component>())
+            {
+                if (component != null)
+                    components.Add(component.GetType().FullName);
+            }
+
+            return new JObject
+            {
+                ["id"] = go.GetInstanceID(),
+                ["name"] = go.name,
+                ["path"] = GetScenePath(go),
+                ["active"] = go.activeSelf,
+                ["position"] = new JArray(go.transform.position.x, go.transform.position.y, go.transform.position.z),
+                ["components"] = components,
+            };
+        }
+
+        private static string GetScenePath(GameObject go)
+        {
+            var path = go.name;
+            var parent = go.transform.parent;
+            while (parent != null)
+            {
+                path = parent.name + "/" + path;
+                parent = parent.parent;
+            }
+            return "/" + path;
         }
 
         // ------------------------------------------------------------------

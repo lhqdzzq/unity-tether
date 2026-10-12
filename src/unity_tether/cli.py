@@ -37,6 +37,25 @@ def main(argv: list[str] | None = None) -> int:
     shot_parser.add_argument("--width", type=int, default=800)
     shot_parser.add_argument("--height", type=int, default=600)
 
+    sub.add_parser("scene", help="show the active scene summary")
+
+    find_parser = sub.add_parser("find-objects", help="find GameObjects by name")
+    find_parser.add_argument("name")
+
+    create_parser = sub.add_parser("create-object", help="create a GameObject")
+    create_parser.add_argument("--name", default="GameObject")
+    create_parser.add_argument("--primitive", choices=["Sphere", "Capsule", "Cylinder", "Cube", "Plane", "Quad"])
+    create_parser.add_argument("--position", default=None, help="e.g. '0,1,0'")
+    create_parser.add_argument("--component", action="append", default=None, help="component type to add (repeatable)")
+
+    delete_parser = sub.add_parser("delete-object", help="delete a GameObject by id, path, or name")
+    delete_parser.add_argument("ref")
+
+    set_parser = sub.add_parser("set", help="modify a GameObject (position/active)")
+    set_parser.add_argument("ref")
+    set_parser.add_argument("--position", default=None, help="e.g. '0,1,0'")
+    set_parser.add_argument("--active", choices=["true", "false"], default=None)
+
     args = parser.parse_args(argv)
 
     client = UnityTetherClient(args.host, args.port)
@@ -62,6 +81,27 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(client.invoke(args.type, args.method, parsed), indent=2))
         elif args.command == "screenshot":
             return _save_screenshot(client, args)
+        elif args.command == "scene":
+            print(json.dumps(client.get_scene(), indent=2))
+        elif args.command == "find-objects":
+            print(json.dumps(client.find_objects(args.name), indent=2))
+        elif args.command == "create-object":
+            result = client.create_object(
+                name=args.name,
+                primitive=args.primitive,
+                components=args.component,
+                position=_parse_vec3(args.position),
+            )
+            print(json.dumps(result, indent=2))
+        elif args.command == "delete-object":
+            print(json.dumps(client.delete_object(_parse_ref(args.ref)), indent=2))
+        elif args.command == "set":
+            changes = {}
+            if args.position is not None:
+                changes["position"] = _parse_vec3(args.position)
+            if args.active is not None:
+                changes["active"] = args.active == "true"
+            print(json.dumps(client.modify_object(_parse_ref(args.ref), **changes), indent=2))
         else:
             parser.error(f"unknown command: {args.command}")
         return 0
@@ -77,6 +117,19 @@ def _parse_json_arg(raw: str) -> object:
         return json.loads(raw)
     except json.JSONDecodeError:
         return raw
+
+
+def _parse_vec3(raw: str | None) -> list[float] | None:
+    if raw is None:
+        return None
+    return [float(x) for x in raw.split(",")]
+
+
+def _parse_ref(raw: str) -> object:
+    try:
+        return int(raw)
+    except ValueError:
+        return {"path": raw} if raw.startswith("/") else {"name": raw}
 
 
 def _save_screenshot(client: UnityTetherClient, args) -> int:

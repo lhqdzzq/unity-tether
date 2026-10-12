@@ -41,6 +41,16 @@ def mock_bridge():
                 result = {"returnValue": "mock-return", "returnType": "System.String"}
             elif method == "screenshot":
                 result = {"format": "png", "width": 2, "height": 2, "base64": "aGVsbG8="}
+            elif method == "create_object":
+                result = {"id": 42, "name": message["params"]["name"], "path": "/" + message["params"]["name"], "active": True, "position": [0.0, 0.0, 0.0], "components": []}
+            elif method == "find_objects":
+                result = {"objects": []}
+            elif method == "modify_object":
+                result = {"id": 1, "name": "x", "path": "/x", "active": True, "position": [0.0, 0.0, 0.0], "components": []}
+            elif method == "delete_object":
+                result = {"deleted": True, "object": {"id": 1}}
+            elif method == "get_scene":
+                result = {"name": "Mock", "path": "", "rootCount": 0, "roots": []}
             else:
                 result = None
             conn.sendall(
@@ -71,6 +81,11 @@ def main() -> int:
             meta, png = client.screenshot(width=2, height=2)
             assert meta["format"] == "png" and png == b"hello", (meta, png)
             print("screenshot ->", meta, png)
+            assert client.get_scene()["name"] == "Mock"
+            assert client.create_object(name="X")["id"] == 42
+            assert client.find_objects("X")["objects"] == []
+            assert client.modify_object(42, position=[0, 0, 0])["id"] == 1
+            assert client.delete_object(42)["deleted"] is True
             assert client.stop()["state"] == "exiting-playmode"
         print("PASS")
         return 0
