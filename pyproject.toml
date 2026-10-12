@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unity-tether"
+version = "0.1.0"
+description = "TCP bridge that tethers the Unity Editor to CLI and MCP tools"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Debuggers",
+]
+
+[project.scripts]
+tether = "unity_tether.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

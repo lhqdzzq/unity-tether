@@ -34,3 +34,19 @@ Early design phase — no code yet.
 - **P2** — control (scene / prefab / asset / script tools)
 - **P3** — MCP server (tool set + screenshot feedback loop)
 - **P4** — engineering (test-runner loop, multi-instance routing, Roslyn validation)
+
+## Install & quick start
+
+**Unity side** — install the bridge into a Unity project:
+
+1. Unity → **Window → Package Manager → + → Add package from disk…** and select this repo's `UnityBridge/` folder.
+2. The bridge auto-starts and listens on `127.0.0.1:8765` (override via the `UNITY_TETHER_PORT` environment variable).
+3. Confirm it is running via **Tools → Unity Tether → Status**.
+
+**Python side** — install the SDK and CLI:
+
+```bash
+pip install -e .
+tether ping
+tether state
+```

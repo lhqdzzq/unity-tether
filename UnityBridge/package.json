@@ -1,0 +1,10 @@
+{
+  "name": "com.unitytether.bridge",
+  "version": "0.1.0",
+  "displayName": "Unity Tether Bridge",
+  "description": "TCP bridge that lets external tools (CLI, MCP) control the Unity Editor.",
+  "unity": "2021.3",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  }
+}
