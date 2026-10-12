@@ -25,15 +25,23 @@ Unity Editor
 
 ## Status
 
-Early design phase — no code yet.
+Working: **P0–P3 complete** (bridge, SDK, CLI, MCP server), plus P4 auto-reconnect and test runner. All features verified end-to-end against a real Unity editor.
+
+## Features
+
+**Bridge** (TCP on `127.0.0.1:8765`, newline JSON): 20 methods — `ping`, `state`, `play`, `stop`, `call`, `screenshot`, `create_object`, `find_objects`, `modify_object`, `delete_object`, `get_scene`, `load_prefab`, `save_prefab`, `instantiate_prefab`, `create_folder`, `create_asset`, `move_asset`, `delete_asset`, `list_assets`, `run_tests` — plus log push events.
+
+**CLI** (`tether`): `ping`, `state`, `play`, `stop`, `logs`, `call`, `screenshot`, `scene`, `find-objects`, `create-object`, `delete-object`, `set`, `load-prefab`, `save-prefab`, `instantiate-prefab`, `create-folder`, `create-asset`, `move-asset`, `delete-asset`, `list-assets`, `test`.
+
+**MCP server** (`tether-mcp`): the same surface as semantic tools; `screenshot` returns an MCP image block for visual feedback.
 
 ## Roadmap
 
-- **P0** — minimal bridge (TCP + main-thread dispatch + `ping` / `state`)
-- **P1** — debug loop (log forwarding, `exec` C#, screenshot)
-- **P2** — control (scene / prefab / asset / script tools)
-- **P3** — MCP server (tool set + screenshot feedback loop)
-- **P4** — engineering (test-runner loop, multi-instance routing, Roslyn validation)
+- **P0** — minimal bridge (TCP + main-thread dispatch + `ping` / `state`) ✅
+- **P1** — debug loop (log forwarding, reflection `call`, screenshot) ✅
+- **P2** — control (scene / object / prefab / asset) ✅
+- **P3** — MCP server (20 tools + screenshot image feedback) ✅
+- **P4** — engineering: auto-reconnect ✅ · test runner ✅ · Roslyn arbitrary-C# `exec` (deferred) · multi-instance routing (deferred)
 
 ## Install & quick start
 

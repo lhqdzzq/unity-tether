@@ -35,7 +35,7 @@ async def main() -> int:
             for n in names:
                 print("  -", n)
 
-            expected = {"ping", "get_state", "play", "stop", "execute_csharp", "screenshot", "create_object", "find_objects", "modify_object", "delete_object", "get_scene", "load_prefab", "save_prefab", "instantiate_prefab", "create_folder", "create_asset", "move_asset", "delete_asset", "list_assets"}
+            expected = {"ping", "get_state", "play", "stop", "execute_csharp", "screenshot", "create_object", "find_objects", "modify_object", "delete_object", "get_scene", "load_prefab", "save_prefab", "instantiate_prefab", "create_folder", "create_asset", "move_asset", "delete_asset", "list_assets", "run_tests"}
             missing = expected - set(names)
             assert not missing, f"missing tools: {missing}"
 

@@ -205,6 +205,27 @@ def list_assets(folder: str = "Assets", recursive: bool = False) -> dict:
     return _call("list_assets", {"folder": folder, "recursive": recursive})
 
 
+@server.tool()
+def run_tests(mode: str = "edit") -> dict:
+    """Run Unity tests (mode: 'edit' or 'play') and return pass/fail counts."""
+    _call("run_tests", {"mode": mode})
+    return _wait_event("test_results")
+
+
+def _wait_event(event_name: str, timeout: float = 120.0) -> dict:
+    """Block until the next push event of *event_name* arrives."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"timed out waiting for event '{event_name}'")
+        event = _get_client().next_event(timeout=remaining)
+        if event.get("event") == event_name:
+            return event
+
+
 def main() -> None:
     server.run(transport="stdio")
 
