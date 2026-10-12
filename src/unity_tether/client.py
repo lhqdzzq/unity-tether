@@ -12,6 +12,7 @@ import json
 import queue
 import socket
 import threading
+import time
 from collections.abc import Iterator
 
 DEFAULT_HOST = "127.0.0.1"
@@ -242,3 +243,19 @@ class UnityTetherClient:
 
     def list_assets(self, folder: str = "Assets", recursive: bool = False) -> object:
         return self.call("list_assets", {"folder": folder, "recursive": recursive})
+
+    # -- test runner --------------------------------------------------------
+    def run_tests(self, mode: str = "edit", timeout: float | None = None) -> object:
+        """Run Unity tests and wait for the asynchronous test_results event."""
+        self.call("run_tests", {"mode": mode})
+        deadline = time.monotonic() + (timeout or self.timeout)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TetherError("timed out waiting for test results")
+            try:
+                event = self.next_event(timeout=remaining)
+            except queue.Empty:
+                raise TetherError("timed out waiting for test results")
+            if event.get("event") == "test_results":
+                return event

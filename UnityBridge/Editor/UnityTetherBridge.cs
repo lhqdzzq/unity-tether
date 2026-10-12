@@ -11,6 +11,7 @@ using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
+using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -272,6 +273,11 @@ namespace UnityTether
                     case "list_assets":
                         response["ok"] = true;
                         response["result"] = ListAssets(request.Params);
+                        break;
+
+                    case "run_tests":
+                        response["ok"] = true;
+                        response["result"] = RunTests(request.Params);
                         break;
 
                     default:
@@ -901,6 +907,56 @@ namespace UnityTether
                 .ToList();
 
             return new JObject { ["folder"] = folder, ["assets"] = new JArray(paths) };
+        }
+
+        // ------------------------------------------------------------------
+        // Test runner — results arrive asynchronously via a push event.
+        // ------------------------------------------------------------------
+        private static TestRunnerApi _testRunner;
+
+        private static JObject RunTests(JToken p)
+        {
+            var mode = (p?["mode"]?.Value<string>() ?? "edit").ToLowerInvariant();
+
+            if (_testRunner == null)
+            {
+                _testRunner = ScriptableObject.CreateInstance<TestRunnerApi>();
+                _testRunner.RegisterCallbacks(new TestResultCallback());
+            }
+
+            var filter = new Filter
+            {
+                testMode = mode == "play" ? TestMode.PlayMode : TestMode.EditMode,
+            };
+            _testRunner.Execute(new ExecutionSettings(filter));
+
+            return new JObject { ["started"] = true, ["mode"] = mode };
+        }
+
+        private sealed class TestResultCallback : ICallbacks
+        {
+            public void RunStarted(ITestAdaptor testsToRun) { }
+
+            public void RunFinished(ITestResultAdaptor result)
+            {
+                var evt = new JObject
+                {
+                    ["event"] = "test_results",
+                    ["resultState"] = result.ResultState,
+                    ["passed"] = result.PassCount,
+                    ["failed"] = result.FailCount,
+                    ["skipped"] = result.SkipCount,
+                    ["inconclusive"] = result.InconclusiveCount,
+                    ["name"] = result.Name,
+                    ["message"] = result.Message,
+                    ["duration"] = result.Duration,
+                };
+                Broadcast(evt.ToString(Formatting.None));
+            }
+
+            public void TestStarted(ITestAdaptor test) { }
+
+            public void TestFinished(ITestResultAdaptor result) { }
         }
 
         // ------------------------------------------------------------------

@@ -84,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
     ls_parser.add_argument("folder", nargs="?", default="Assets")
     ls_parser.add_argument("--recursive", action="store_true")
 
+    test_parser = sub.add_parser("test", help="run Unity tests and wait for results")
+    test_parser.add_argument("--mode", choices=["edit", "play"], default="edit")
+
     args = parser.parse_args(argv)
 
     client = UnityTetherClient(args.host, args.port)
@@ -146,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(client.delete_asset(args.path), indent=2))
         elif args.command == "list-assets":
             print(json.dumps(client.list_assets(args.folder, args.recursive), indent=2))
+        elif args.command == "test":
+            print(json.dumps(client.run_tests(mode=args.mode), indent=2))
         else:
             parser.error(f"unknown command: {args.command}")
         return 0

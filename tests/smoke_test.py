@@ -67,6 +67,11 @@ def mock_bridge():
                 result = {"path": message["params"]["path"], "deleted": True}
             elif method == "list_assets":
                 result = {"folder": message["params"]["folder"], "assets": []}
+            elif method == "run_tests":
+                result = {"started": True, "mode": "edit"}
+                conn.sendall(
+                    (json.dumps({"event": "test_results", "resultState": "Failed", "passed": 1, "failed": 1, "skipped": 0}) + "\n").encode("utf-8")
+                )
             else:
                 result = None
             conn.sendall(
@@ -110,6 +115,9 @@ def main() -> int:
             assert client.move_asset("Assets/X/M.mat", "Assets/X/N.mat")["moved"] is True
             assert client.delete_asset("Assets/X/N.mat")["deleted"] is True
             assert client.list_assets("Assets/X")["assets"] == []
+            test_result = client.run_tests(mode="edit")
+            assert test_result["event"] == "test_results" and test_result["passed"] == 1 and test_result["failed"] == 1, test_result
+            print("run_tests ->", test_result)
             assert client.stop()["state"] == "exiting-playmode"
         print("PASS")
         return 0
