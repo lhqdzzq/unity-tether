@@ -261,7 +261,7 @@ namespace UnityTether
             {
                 try
                 {
-                    using (var reader = new StreamReader(_stream, new UTF8Encoding(false), leaveOpen: true))
+                    using (var reader = new StreamReader(_stream, new UTF8Encoding(false), false, 4096, true))
                     {
                         string line;
                         while ((line = reader.ReadLine()) != null)
