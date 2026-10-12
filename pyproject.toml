@@ -13,8 +13,12 @@ classifiers = [
     "Topic :: Software Development :: Debuggers",
 ]
 
+[project.optional-dependencies]
+mcp = ["mcp>=2.0"]
+
 [project.scripts]
 tether = "unity_tether.cli:main"
+tether-mcp = "unity_tether.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
