@@ -57,6 +57,16 @@ def mock_bridge():
                 result = {"path": message["params"]["path"], "success": True}
             elif method == "instantiate_prefab":
                 result = {"id": 101, "name": "PrefabRoot(Clone)", "path": "/PrefabRoot(Clone)", "active": True, "position": [0.0, 0.0, 0.0], "components": []}
+            elif method == "create_folder":
+                result = {"path": message["params"]["path"], "created": True}
+            elif method == "create_asset":
+                result = {"path": message["params"]["path"], "type": message["params"]["type"], "created": True}
+            elif method == "move_asset":
+                result = {"src": message["params"]["src"], "dst": message["params"]["dst"], "moved": True}
+            elif method == "delete_asset":
+                result = {"path": message["params"]["path"], "deleted": True}
+            elif method == "list_assets":
+                result = {"folder": message["params"]["folder"], "assets": []}
             else:
                 result = None
             conn.sendall(
@@ -95,6 +105,11 @@ def main() -> int:
             assert client.load_prefab("Assets/X.prefab")["root"]["name"] == "PrefabRoot"
             assert client.save_prefab(100, "Assets/X.prefab")["success"] is True
             assert client.instantiate_prefab("Assets/X.prefab")["name"] == "PrefabRoot(Clone)"
+            assert client.create_folder("Assets/X")["created"] is True
+            assert client.create_asset("Assets/X/M.mat", "material")["created"] is True
+            assert client.move_asset("Assets/X/M.mat", "Assets/X/N.mat")["moved"] is True
+            assert client.delete_asset("Assets/X/N.mat")["deleted"] is True
+            assert client.list_assets("Assets/X")["assets"] == []
             assert client.stop()["state"] == "exiting-playmode"
         print("PASS")
         return 0

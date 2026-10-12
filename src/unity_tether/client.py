@@ -177,3 +177,19 @@ class UnityTetherClient:
 
     def instantiate_prefab(self, path: str) -> object:
         return self.call("instantiate_prefab", {"path": path})
+
+    # -- asset control -----------------------------------------------------
+    def create_folder(self, path: str) -> object:
+        return self.call("create_folder", {"path": path})
+
+    def create_asset(self, path: str, type_: str = "material") -> object:
+        return self.call("create_asset", {"path": path, "type": type_})
+
+    def move_asset(self, src: str, dst: str) -> object:
+        return self.call("move_asset", {"src": src, "dst": dst})
+
+    def delete_asset(self, path: str) -> object:
+        return self.call("delete_asset", {"path": path})
+
+    def list_assets(self, folder: str = "Assets", recursive: bool = False) -> object:
+        return self.call("list_assets", {"folder": folder, "recursive": recursive})

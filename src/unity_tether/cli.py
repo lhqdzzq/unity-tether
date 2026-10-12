@@ -66,6 +66,24 @@ def main(argv: list[str] | None = None) -> int:
     inst_parser = sub.add_parser("instantiate-prefab", help="instantiate a prefab into the scene")
     inst_parser.add_argument("path")
 
+    mkdir_parser = sub.add_parser("create-folder", help="create a folder under Assets")
+    mkdir_parser.add_argument("path")
+
+    casset_parser = sub.add_parser("create-asset", help="create an asset (material/prefab)")
+    casset_parser.add_argument("path")
+    casset_parser.add_argument("--type", default="material", choices=["material", "prefab"])
+
+    mv_parser = sub.add_parser("move-asset", help="move or rename an asset")
+    mv_parser.add_argument("src")
+    mv_parser.add_argument("dst")
+
+    rm_parser = sub.add_parser("delete-asset", help="delete an asset")
+    rm_parser.add_argument("path")
+
+    ls_parser = sub.add_parser("list-assets", help="list assets in a folder")
+    ls_parser.add_argument("folder", nargs="?", default="Assets")
+    ls_parser.add_argument("--recursive", action="store_true")
+
     args = parser.parse_args(argv)
 
     client = UnityTetherClient(args.host, args.port)
@@ -118,6 +136,16 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(client.save_prefab(_parse_ref(args.ref), args.path), indent=2))
         elif args.command == "instantiate-prefab":
             print(json.dumps(client.instantiate_prefab(args.path), indent=2))
+        elif args.command == "create-folder":
+            print(json.dumps(client.create_folder(args.path), indent=2))
+        elif args.command == "create-asset":
+            print(json.dumps(client.create_asset(args.path, args.type), indent=2))
+        elif args.command == "move-asset":
+            print(json.dumps(client.move_asset(args.src, args.dst), indent=2))
+        elif args.command == "delete-asset":
+            print(json.dumps(client.delete_asset(args.path), indent=2))
+        elif args.command == "list-assets":
+            print(json.dumps(client.list_assets(args.folder, args.recursive), indent=2))
         else:
             parser.error(f"unknown command: {args.command}")
         return 0

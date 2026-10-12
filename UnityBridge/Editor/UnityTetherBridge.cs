@@ -249,6 +249,31 @@ namespace UnityTether
                         response["result"] = InstantiatePrefab(request.Params);
                         break;
 
+                    case "create_folder":
+                        response["ok"] = true;
+                        response["result"] = CreateFolder(request.Params);
+                        break;
+
+                    case "create_asset":
+                        response["ok"] = true;
+                        response["result"] = CreateAsset(request.Params);
+                        break;
+
+                    case "move_asset":
+                        response["ok"] = true;
+                        response["result"] = MoveAsset(request.Params);
+                        break;
+
+                    case "delete_asset":
+                        response["ok"] = true;
+                        response["result"] = DeleteAsset(request.Params);
+                        break;
+
+                    case "list_assets":
+                        response["ok"] = true;
+                        response["result"] = ListAssets(request.Params);
+                        break;
+
                     default:
                         response["ok"] = false;
                         response["error"] = $"unknown method: {request.Method}";
@@ -781,6 +806,101 @@ namespace UnityTether
 
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(asset);
             return BuildObjectInfo(instance);
+        }
+
+        // ------------------------------------------------------------------
+        // Asset control (AssetDatabase official path — see invariant I5).
+        // ------------------------------------------------------------------
+        private static JObject CreateFolder(JToken p)
+        {
+            var path = p?["path"]?.Value<string>();
+            if (string.IsNullOrEmpty(path))
+                throw new Exception("create_folder requires 'path'");
+
+            var parts = path.Replace('\\', '/').Split('/');
+            if (parts.Length < 2 || parts[0] != "Assets")
+                throw new Exception("path must start with 'Assets'");
+
+            var current = "Assets";
+            for (var i = 1; i < parts.Length; i++)
+            {
+                var next = current + "/" + parts[i];
+                if (!AssetDatabase.IsValidFolder(next))
+                {
+                    var result = AssetDatabase.CreateFolder(current, parts[i]);
+                    if (string.IsNullOrEmpty(result))
+                        throw new Exception($"failed to create folder: {next}");
+                }
+                current = next;
+            }
+
+            return new JObject { ["path"] = current, ["created"] = true };
+        }
+
+        private static JObject CreateAsset(JToken p)
+        {
+            var path = p?["path"]?.Value<string>();
+            var type = p?["type"]?.Value<string>() ?? "material";
+            if (string.IsNullOrEmpty(path))
+                throw new Exception("create_asset requires 'path'");
+
+            UnityEngine.Object asset;
+            switch (type.ToLowerInvariant())
+            {
+                case "material":
+                    asset = new Material(Shader.Find("Standard"));
+                    break;
+                case "prefab":
+                    asset = new GameObject(Path.GetFileNameWithoutExtension(path));
+                    break;
+                default:
+                    throw new Exception($"unsupported asset type: {type}");
+            }
+
+            AssetDatabase.CreateAsset(asset, path);
+            AssetDatabase.ImportAsset(path);
+            return new JObject { ["path"] = path, ["type"] = type, ["created"] = true };
+        }
+
+        private static JObject MoveAsset(JToken p)
+        {
+            var src = p?["src"]?.Value<string>();
+            var dst = p?["dst"]?.Value<string>();
+            if (string.IsNullOrEmpty(src) || string.IsNullOrEmpty(dst))
+                throw new Exception("move_asset requires 'src' and 'dst'");
+
+            var error = AssetDatabase.MoveAsset(src, dst);
+            if (!string.IsNullOrEmpty(error))
+                throw new Exception($"move failed: {error}");
+
+            return new JObject { ["src"] = src, ["dst"] = dst, ["moved"] = true };
+        }
+
+        private static JObject DeleteAsset(JToken p)
+        {
+            var path = p?["path"]?.Value<string>();
+            if (string.IsNullOrEmpty(path))
+                throw new Exception("delete_asset requires 'path'");
+
+            var ok = AssetDatabase.DeleteAsset(path);
+            return new JObject { ["path"] = path, ["deleted"] = ok };
+        }
+
+        private static JObject ListAssets(JToken p)
+        {
+            var folder = (p?["folder"]?.Value<string>() ?? "Assets").TrimEnd('/');
+            var recursive = p?["recursive"]?.Value<bool>() ?? false;
+
+            if (!AssetDatabase.IsValidFolder(folder))
+                throw new Exception($"not a folder: {folder}");
+
+            var paths = AssetDatabase.FindAssets("", new[] { folder })
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .Where(path => recursive || (Path.GetDirectoryName(path)?.Replace('\\', '/') == folder))
+                .OrderBy(path => path)
+                .ToList();
+
+            return new JObject { ["folder"] = folder, ["assets"] = new JArray(paths) };
         }
 
         // ------------------------------------------------------------------
