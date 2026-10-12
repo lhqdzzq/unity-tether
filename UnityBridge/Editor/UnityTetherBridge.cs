@@ -234,6 +234,21 @@ namespace UnityTether
                         response["result"] = GetSceneSummary();
                         break;
 
+                    case "load_prefab":
+                        response["ok"] = true;
+                        response["result"] = LoadPrefab(request.Params);
+                        break;
+
+                    case "save_prefab":
+                        response["ok"] = true;
+                        response["result"] = SavePrefab(request.Params);
+                        break;
+
+                    case "instantiate_prefab":
+                        response["ok"] = true;
+                        response["result"] = InstantiatePrefab(request.Params);
+                        break;
+
                     default:
                         response["ok"] = false;
                         response["error"] = $"unknown method: {request.Method}";
@@ -554,19 +569,28 @@ namespace UnityTether
         private static JObject FindObjects(JToken p)
         {
             var name = p?["name"]?.Value<string>();
-            if (string.IsNullOrEmpty(name))
-                throw new Exception("find_objects requires 'name'");
-
+            var rootRef = p?["root"];
             var results = new JArray();
-            foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
+
+            if (rootRef != null && rootRef.Type != JTokenType.Null)
+            {
+                var root = ResolveGameObject(rootRef);
+                if (root == null)
+                    throw new Exception("find_objects: root not found");
                 CollectByName(root.transform, name, results);
+            }
+            else
+            {
+                foreach (var sceneRoot in SceneManager.GetActiveScene().GetRootGameObjects())
+                    CollectByName(sceneRoot.transform, name, results);
+            }
 
             return new JObject { ["objects"] = results };
         }
 
         private static void CollectByName(Transform t, string name, JArray results)
         {
-            if (t.name == name)
+            if (string.IsNullOrEmpty(name) || t.name == name)
                 results.Add(BuildObjectInfo(t.gameObject));
             foreach (Transform child in t)
                 CollectByName(child, name, results);
@@ -706,6 +730,57 @@ namespace UnityTether
                 parent = parent.parent;
             }
             return "/" + path;
+        }
+
+        // ------------------------------------------------------------------
+        // Prefab control (official PrefabUtility path — see invariant I5).
+        // ------------------------------------------------------------------
+        private static JObject LoadPrefab(JToken p)
+        {
+            var path = p?["path"]?.Value<string>();
+            if (string.IsNullOrEmpty(path))
+                throw new Exception("load_prefab requires 'path'");
+
+            var root = PrefabUtility.LoadPrefabContents(path);
+            if (root == null)
+                throw new Exception($"failed to load prefab: {path}");
+
+            return new JObject
+            {
+                ["path"] = path,
+                ["root"] = BuildObjectInfo(root),
+            };
+        }
+
+        private static JObject SavePrefab(JToken p)
+        {
+            var path = p?["path"]?.Value<string>();
+            var go = ResolveGameObject(p?["object"]);
+            if (go == null)
+                throw new Exception("save_prefab: object not found");
+            if (string.IsNullOrEmpty(path))
+                throw new Exception("save_prefab requires 'path'");
+
+            var saved = PrefabUtility.SaveAsPrefabAsset(go, path);
+            return new JObject
+            {
+                ["path"] = path,
+                ["success"] = saved != null,
+            };
+        }
+
+        private static JObject InstantiatePrefab(JToken p)
+        {
+            var path = p?["path"]?.Value<string>();
+            if (string.IsNullOrEmpty(path))
+                throw new Exception("instantiate_prefab requires 'path'");
+
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (asset == null)
+                throw new Exception($"prefab not found: {path}");
+
+            var instance = (GameObject)PrefabUtility.InstantiatePrefab(asset);
+            return BuildObjectInfo(instance);
         }
 
         // ------------------------------------------------------------------

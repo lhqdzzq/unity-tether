@@ -56,6 +56,16 @@ def main(argv: list[str] | None = None) -> int:
     set_parser.add_argument("--position", default=None, help="e.g. '0,1,0'")
     set_parser.add_argument("--active", choices=["true", "false"], default=None)
 
+    load_parser = sub.add_parser("load-prefab", help="load prefab contents for editing")
+    load_parser.add_argument("path")
+
+    save_parser = sub.add_parser("save-prefab", help="save an object as a prefab asset")
+    save_parser.add_argument("ref")
+    save_parser.add_argument("path")
+
+    inst_parser = sub.add_parser("instantiate-prefab", help="instantiate a prefab into the scene")
+    inst_parser.add_argument("path")
+
     args = parser.parse_args(argv)
 
     client = UnityTetherClient(args.host, args.port)
@@ -102,6 +112,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.active is not None:
                 changes["active"] = args.active == "true"
             print(json.dumps(client.modify_object(_parse_ref(args.ref), **changes), indent=2))
+        elif args.command == "load-prefab":
+            print(json.dumps(client.load_prefab(args.path), indent=2))
+        elif args.command == "save-prefab":
+            print(json.dumps(client.save_prefab(_parse_ref(args.ref), args.path), indent=2))
+        elif args.command == "instantiate-prefab":
+            print(json.dumps(client.instantiate_prefab(args.path), indent=2))
         else:
             parser.error(f"unknown command: {args.command}")
         return 0

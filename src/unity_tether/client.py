@@ -151,8 +151,13 @@ class UnityTetherClient:
             params["parent"] = parent
         return self.call("create_object", params)
 
-    def find_objects(self, name: str) -> object:
-        return self.call("find_objects", {"name": name})
+    def find_objects(self, name: str | None = None, root: object | None = None) -> object:
+        params: dict = {}
+        if name is not None:
+            params["name"] = name
+        if root is not None:
+            params["root"] = root
+        return self.call("find_objects", params)
 
     def modify_object(self, obj, **changes) -> object:
         return self.call("modify_object", {"object": obj, **changes})
@@ -162,3 +167,13 @@ class UnityTetherClient:
 
     def get_scene(self) -> object:
         return self.call("get_scene", {})
+
+    # -- prefab control ----------------------------------------------------
+    def load_prefab(self, path: str) -> object:
+        return self.call("load_prefab", {"path": path})
+
+    def save_prefab(self, obj, path: str) -> object:
+        return self.call("save_prefab", {"object": obj, "path": path})
+
+    def instantiate_prefab(self, path: str) -> object:
+        return self.call("instantiate_prefab", {"path": path})

@@ -51,6 +51,12 @@ def mock_bridge():
                 result = {"deleted": True, "object": {"id": 1}}
             elif method == "get_scene":
                 result = {"name": "Mock", "path": "", "rootCount": 0, "roots": []}
+            elif method == "load_prefab":
+                result = {"path": message["params"]["path"], "root": {"id": 100, "name": "PrefabRoot", "path": "/PrefabRoot", "active": True, "position": [0.0, 0.0, 0.0], "components": []}}
+            elif method == "save_prefab":
+                result = {"path": message["params"]["path"], "success": True}
+            elif method == "instantiate_prefab":
+                result = {"id": 101, "name": "PrefabRoot(Clone)", "path": "/PrefabRoot(Clone)", "active": True, "position": [0.0, 0.0, 0.0], "components": []}
             else:
                 result = None
             conn.sendall(
@@ -86,6 +92,9 @@ def main() -> int:
             assert client.find_objects("X")["objects"] == []
             assert client.modify_object(42, position=[0, 0, 0])["id"] == 1
             assert client.delete_object(42)["deleted"] is True
+            assert client.load_prefab("Assets/X.prefab")["root"]["name"] == "PrefabRoot"
+            assert client.save_prefab(100, "Assets/X.prefab")["success"] is True
+            assert client.instantiate_prefab("Assets/X.prefab")["name"] == "PrefabRoot(Clone)"
             assert client.stop()["state"] == "exiting-playmode"
         print("PASS")
         return 0
