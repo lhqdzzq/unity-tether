@@ -28,6 +28,10 @@ def main(argv: list[str] | None = None) -> int:
         choices=["Log", "Warning", "Error", "Assert", "Exception"],
         help="filter by log level",
     )
+    call_parser = sub.add_parser("call", help="invoke a static method (e.g. 'tether call UnityEngine.Debug Log hello')")
+    call_parser.add_argument("type", help="type name, e.g. UnityEngine.Debug or System.Math")
+    call_parser.add_argument("method", help="static method name")
+    call_parser.add_argument("args", nargs="*", help="arguments as JSON values (5, true, \"text\", {\"x\":1,\"y\":2,\"z\":3})")
 
     args = parser.parse_args(argv)
 
@@ -49,6 +53,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(client.stop(), indent=2))
         elif args.command == "logs":
             return _stream_logs(client, args.level)
+        elif args.command == "call":
+            parsed = [_parse_json_arg(a) for a in args.args]
+            print(json.dumps(client.invoke(args.type, args.method, parsed), indent=2))
         else:
             parser.error(f"unknown command: {args.command}")
         return 0
@@ -57,6 +64,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         client.close()
+
+
+def _parse_json_arg(raw: str) -> object:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
 
 
 def _stream_logs(client: UnityTetherClient, level: str | None) -> int:

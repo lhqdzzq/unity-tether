@@ -122,3 +122,7 @@ class UnityTetherClient:
 
     def stop(self) -> object:
         return self.call("stop")
+
+    def invoke(self, type_name: str, method_name: str, args: list | None = None) -> object:
+        """Invoke a public static method by reflection (e.g. invoke('UnityEngine.Debug', 'Log', ['hi']))."""
+        return self.call("call", {"type": type_name, "method": method_name, "args": args or []})

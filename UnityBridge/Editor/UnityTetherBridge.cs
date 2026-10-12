@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using Newtonsoft.Json;
@@ -196,6 +199,11 @@ namespace UnityTether
                         response["ok"] = true;
                         break;
 
+                    case "call":
+                        response["ok"] = true;
+                        response["result"] = CallStaticMethod(request.Params);
+                        break;
+
                     default:
                         response["ok"] = false;
                         response["error"] = $"unknown method: {request.Method}";
@@ -268,6 +276,148 @@ namespace UnityTether
                 if (!client.IsDisposed)
                     client.Outbox.Enqueue(line);
             }
+        }
+
+        // ------------------------------------------------------------------
+        // Reflection "call": invoke any public static method with coercion.
+        // ------------------------------------------------------------------
+        private static JObject CallStaticMethod(JToken p)
+        {
+            var typeName = p?["type"]?.Value<string>();
+            var methodName = p?["method"]?.Value<string>();
+            var args = p?["args"] as JArray ?? new JArray();
+
+            if (string.IsNullOrEmpty(typeName) || string.IsNullOrEmpty(methodName))
+                throw new Exception("call requires 'type' and 'method'");
+
+            var type = ResolveType(typeName);
+            if (type == null)
+                throw new Exception($"type not found: {typeName}");
+
+            var methods = type
+                .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)
+                .Where(m => m.Name == methodName && m.GetParameters().Length == args.Count)
+                .ToList();
+
+            if (methods.Count == 0)
+                throw new Exception($"no static method {typeName}.{methodName} accepting {args.Count} arg(s)");
+
+            Exception lastError = null;
+            foreach (var method in methods)
+            {
+                try
+                {
+                    var parameters = method.GetParameters();
+                    var converted = new object[parameters.Length];
+                    for (var i = 0; i < parameters.Length; i++)
+                        converted[i] = Coerce(args[i], parameters[i].ParameterType);
+
+                    var result = method.Invoke(null, converted);
+                    return new JObject
+                    {
+                        ["returnValue"] = result == null ? null : result.ToString(),
+                        ["returnType"] = method.ReturnType.FullName,
+                    };
+                }
+                catch (Exception e)
+                {
+                    lastError = e;
+                }
+            }
+
+            var cause = lastError?.InnerException?.Message ?? lastError?.Message ?? "unknown";
+            throw new Exception($"failed to invoke {typeName}.{methodName}: {cause}");
+        }
+
+        private static Type ResolveType(string name)
+        {
+            var type = Type.GetType(name);
+            if (type != null)
+                return type;
+
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                type = asm.GetType(name, false);
+                if (type != null)
+                    return type;
+            }
+
+            foreach (var ns in new[] { "UnityEngine", "UnityEditor", "System" })
+            {
+                var full = ns + "." + name;
+                type = Type.GetType(full);
+                if (type != null)
+                    return type;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    type = asm.GetType(full, false);
+                    if (type != null)
+                        return type;
+                }
+            }
+
+            return null;
+        }
+
+        private static object Coerce(JToken token, Type target)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+                return target.IsValueType ? Activator.CreateInstance(target) : null;
+
+            if (target == typeof(string)) return token.Value<string>();
+            if (target == typeof(bool)) return token.Value<bool>();
+            if (target == typeof(int)) return token.Value<int>();
+            if (target == typeof(long)) return token.Value<long>();
+            if (target == typeof(short)) return token.Value<short>();
+            if (target == typeof(byte)) return token.Value<byte>();
+            if (target == typeof(uint)) return token.Value<uint>();
+            if (target == typeof(ulong)) return token.Value<ulong>();
+            if (target == typeof(float)) return token.Value<float>();
+            if (target == typeof(double)) return token.Value<double>();
+            if (target == typeof(decimal)) return token.Value<decimal>();
+
+            if (target.IsEnum)
+            {
+                if (token.Type == JTokenType.String)
+                    return Enum.Parse(target, token.Value<string>(), true);
+                if (token.Type == JTokenType.Integer)
+                    return Enum.ToObject(target, token.Value<long>());
+            }
+
+            if (target == typeof(Vector3)) return ParseVector3(token);
+            if (target == typeof(Vector2)) return ParseVector2(token);
+            if (target == typeof(Quaternion)) return ParseQuaternion(token);
+            if (target == typeof(Color)) return ParseColor(token);
+
+            return Convert.ChangeType(token.Value<object>(), target, CultureInfo.InvariantCulture);
+        }
+
+        private static Vector3 ParseVector3(JToken t)
+        {
+            if (t is JArray a)
+                return new Vector3(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>());
+            return new Vector3(t["x"].Value<float>(), t["y"].Value<float>(), t["z"].Value<float>());
+        }
+
+        private static Vector2 ParseVector2(JToken t)
+        {
+            if (t is JArray a)
+                return new Vector2(a[0].Value<float>(), a[1].Value<float>());
+            return new Vector2(t["x"].Value<float>(), t["y"].Value<float>());
+        }
+
+        private static Quaternion ParseQuaternion(JToken t)
+        {
+            if (t is JArray a)
+                return new Quaternion(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a[3].Value<float>());
+            return new Quaternion(t["x"].Value<float>(), t["y"].Value<float>(), t["z"].Value<float>(), t["w"].Value<float>());
+        }
+
+        private static Color ParseColor(JToken t)
+        {
+            if (t is JArray a)
+                return new Color(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a.Count > 3 ? a[3].Value<float>() : 1f);
+            return new Color(t["r"].Value<float>(), t["g"].Value<float>(), t["b"].Value<float>(), t["a"] != null ? t["a"].Value<float>() : 1f);
         }
 
         // ------------------------------------------------------------------

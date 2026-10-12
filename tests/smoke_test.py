@@ -37,6 +37,8 @@ def mock_bridge():
                 )
             elif method == "stop":
                 result = {"state": "exiting-playmode"}
+            elif method == "call":
+                result = {"returnValue": "mock-return", "returnType": "System.String"}
             else:
                 result = None
             conn.sendall(
@@ -63,6 +65,7 @@ def main() -> int:
             assert event["event"] == "log" and event["message"] == "hello from mock", event
             print("event ->", json.dumps(event, ensure_ascii=False))
 
+            assert client.invoke("System.Math", "Sqrt", [16])["returnValue"] == "mock-return"
             assert client.stop()["state"] == "exiting-playmode"
         print("PASS")
         return 0
