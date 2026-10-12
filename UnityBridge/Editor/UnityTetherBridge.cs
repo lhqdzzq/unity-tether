@@ -46,6 +46,8 @@ namespace UnityTether
         static UnityTetherBridge()
         {
             EditorApplication.update += Tick;
+            Application.logMessageReceived += OnLogMessage;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             Start(ResolvePort());
         }
 
@@ -172,6 +174,28 @@ namespace UnityTether
                         response["result"] = BuildState();
                         break;
 
+                    case "play":
+                        if (EditorApplication.isPlaying)
+                            response["result"] = new JObject { ["state"] = "already-playing" };
+                        else
+                        {
+                            EditorApplication.EnterPlaymode();
+                            response["result"] = new JObject { ["state"] = "entering-playmode" };
+                        }
+                        response["ok"] = true;
+                        break;
+
+                    case "stop":
+                        if (!EditorApplication.isPlaying)
+                            response["result"] = new JObject { ["state"] = "not-playing" };
+                        else
+                        {
+                            EditorApplication.ExitPlaymode();
+                            response["result"] = new JObject { ["state"] = "exiting-playmode" };
+                        }
+                        response["ok"] = true;
+                        break;
+
                     default:
                         response["ok"] = false;
                         response["error"] = $"unknown method: {request.Method}";
@@ -205,6 +229,45 @@ namespace UnityTether
                 ["scenePath"] = scene.path,
                 ["unityVersion"] = Application.unityVersion,
             };
+        }
+
+        private static void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            switch (state)
+            {
+                case PlayModeStateChange.EnteredPlayMode:
+                    Debug.Log("[UnityTether] play mode entered");
+                    break;
+                case PlayModeStateChange.ExitingPlayMode:
+                    Debug.Log("[UnityTether] play mode exiting");
+                    break;
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Push events (logs etc.) — no "id", so clients treat them as events.
+        // ------------------------------------------------------------------
+        private static void OnLogMessage(string condition, string stackTrace, LogType type)
+        {
+            // Runs on the main thread; Broadcast only enqueues, so I1/I2 hold.
+            var evt = new JObject
+            {
+                ["event"] = "log",
+                ["type"] = type.ToString(),
+                ["message"] = condition,
+                ["stackTrace"] = stackTrace,
+                ["time"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            };
+            Broadcast(evt.ToString(Formatting.None));
+        }
+
+        private static void Broadcast(string line)
+        {
+            foreach (var client in Clients.Values)
+            {
+                if (!client.IsDisposed)
+                    client.Outbox.Enqueue(line);
+            }
         }
 
         // ------------------------------------------------------------------

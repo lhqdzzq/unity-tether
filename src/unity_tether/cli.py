@@ -20,6 +20,14 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("ping", help="check that the bridge is reachable")
     sub.add_parser("state", help="print the editor state")
+    sub.add_parser("play", help="enter play mode")
+    sub.add_parser("stop", help="exit play mode")
+    logs_parser = sub.add_parser("logs", help="stream runtime logs")
+    logs_parser.add_argument(
+        "--level",
+        choices=["Log", "Warning", "Error", "Assert", "Exception"],
+        help="filter by log level",
+    )
 
     args = parser.parse_args(argv)
 
@@ -35,6 +43,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(client.ping(), indent=2))
         elif args.command == "state":
             print(json.dumps(client.state(), indent=2))
+        elif args.command == "play":
+            print(json.dumps(client.play(), indent=2))
+        elif args.command == "stop":
+            print(json.dumps(client.stop(), indent=2))
+        elif args.command == "logs":
+            return _stream_logs(client, args.level)
         else:
             parser.error(f"unknown command: {args.command}")
         return 0
@@ -43,6 +57,20 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         client.close()
+
+
+def _stream_logs(client: UnityTetherClient, level: str | None) -> int:
+    print("streaming logs (Ctrl+C to stop)…", file=sys.stderr)
+    try:
+        for event in client.events():
+            if event.get("event") != "log":
+                continue
+            if level and event.get("type") != level:
+                continue
+            print(f"[{event.get('type', '?')}] {event.get('message', '')}", flush=True)
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 if __name__ == "__main__":

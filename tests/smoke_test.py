@@ -29,6 +29,14 @@ def mock_bridge():
                 result = {"pong": True, "time": 1234567890, "unityVersion": "mock"}
             elif method == "state":
                 result = {"mode": "edit", "isPlaying": False, "sceneName": "MockScene"}
+            elif method == "play":
+                result = {"state": "entering-playmode"}
+                # push a log event to exercise the push channel
+                conn.sendall(
+                    (json.dumps({"event": "log", "type": "Log", "message": "hello from mock"}) + "\n").encode("utf-8")
+                )
+            elif method == "stop":
+                result = {"state": "exiting-playmode"}
             else:
                 result = None
             conn.sendall(
@@ -45,13 +53,17 @@ def main() -> int:
     server, _ = mock_bridge()
     try:
         with UnityTetherClient(port=PORT) as client:
-            pong = client.ping()
-            assert pong["pong"] is True, pong
-            print("ping ->", json.dumps(pong, ensure_ascii=False))
+            assert client.ping()["pong"] is True
+            assert client.state()["mode"] == "edit"
+            assert client.play()["state"] == "entering-playmode"
 
-            state = client.state()
-            assert state["mode"] == "edit", state
-            print("state ->", json.dumps(state, ensure_ascii=False))
+            # The mock pushed a log event before the play response; the client
+            # must route id-less messages to the event queue, not the pending map.
+            event = client.next_event(timeout=2)
+            assert event["event"] == "log" and event["message"] == "hello from mock", event
+            print("event ->", json.dumps(event, ensure_ascii=False))
+
+            assert client.stop()["state"] == "exiting-playmode"
         print("PASS")
         return 0
     finally:

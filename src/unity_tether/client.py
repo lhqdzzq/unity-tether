@@ -8,8 +8,10 @@ process and blocking here can never deadlock the Unity main thread.
 from __future__ import annotations
 
 import json
+import queue
 import socket
 import threading
+from collections.abc import Iterator
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -28,6 +30,7 @@ class UnityTetherClient:
         self._lock = threading.Lock()
         self._next_id = 1
         self._pending: dict[int, dict] = {}
+        self._events: queue.Queue[dict] = queue.Queue()
         self._closed = False
 
     # -- lifecycle ---------------------------------------------------------
@@ -71,8 +74,7 @@ class UnityTetherClient:
                     slot["response"] = message
                     slot["event"].set()
             else:
-                # Push event (logs etc.) — handled in P1.
-                pass
+                self._events.put(message)
 
     def call(self, method: str, params: dict | None = None, timeout: float | None = None) -> object:
         if self._sock is None:
@@ -98,9 +100,25 @@ class UnityTetherClient:
             raise TetherError(f"'{method}' failed: {response.get('error', 'unknown error')}")
         return response.get("result")
 
+    # -- events ------------------------------------------------------------
+    def next_event(self, timeout: float | None = None) -> dict:
+        """Return the next push event (log etc.), blocking up to *timeout* seconds."""
+        return self._events.get(timeout=timeout)
+
+    def events(self) -> Iterator[dict]:
+        """Yield push events as they arrive (infinite generator)."""
+        while True:
+            yield self.next_event()
+
     # -- convenience -------------------------------------------------------
     def ping(self) -> object:
         return self.call("ping")
 
     def state(self) -> object:
         return self.call("state")
+
+    def play(self) -> object:
+        return self.call("play")
+
+    def stop(self) -> object:
+        return self.call("stop")
