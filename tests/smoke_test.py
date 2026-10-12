@@ -39,6 +39,8 @@ def mock_bridge():
                 result = {"state": "exiting-playmode"}
             elif method == "call":
                 result = {"returnValue": "mock-return", "returnType": "System.String"}
+            elif method == "screenshot":
+                result = {"format": "png", "width": 2, "height": 2, "base64": "aGVsbG8="}
             else:
                 result = None
             conn.sendall(
@@ -66,6 +68,9 @@ def main() -> int:
             print("event ->", json.dumps(event, ensure_ascii=False))
 
             assert client.invoke("System.Math", "Sqrt", [16])["returnValue"] == "mock-return"
+            meta, png = client.screenshot(width=2, height=2)
+            assert meta["format"] == "png" and png == b"hello", (meta, png)
+            print("screenshot ->", meta, png)
             assert client.stop()["state"] == "exiting-playmode"
         print("PASS")
         return 0

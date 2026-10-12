@@ -32,6 +32,10 @@ def main(argv: list[str] | None = None) -> int:
     call_parser.add_argument("type", help="type name, e.g. UnityEngine.Debug or System.Math")
     call_parser.add_argument("method", help="static method name")
     call_parser.add_argument("args", nargs="*", help="arguments as JSON values (5, true, \"text\", {\"x\":1,\"y\":2,\"z\":3})")
+    shot_parser = sub.add_parser("screenshot", help="capture a screenshot of the current view")
+    shot_parser.add_argument("--out", "-o", default="screenshot.png", help="output PNG path (default screenshot.png)")
+    shot_parser.add_argument("--width", type=int, default=800)
+    shot_parser.add_argument("--height", type=int, default=600)
 
     args = parser.parse_args(argv)
 
@@ -56,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "call":
             parsed = [_parse_json_arg(a) for a in args.args]
             print(json.dumps(client.invoke(args.type, args.method, parsed), indent=2))
+        elif args.command == "screenshot":
+            return _save_screenshot(client, args)
         else:
             parser.error(f"unknown command: {args.command}")
         return 0
@@ -71,6 +77,25 @@ def _parse_json_arg(raw: str) -> object:
         return json.loads(raw)
     except json.JSONDecodeError:
         return raw
+
+
+def _save_screenshot(client: UnityTetherClient, args) -> int:
+    meta, png = client.screenshot(width=args.width, height=args.height)
+    with open(args.out, "wb") as f:
+        f.write(png)
+    print(
+        json.dumps(
+            {
+                "format": meta.get("format"),
+                "width": meta.get("width"),
+                "height": meta.get("height"),
+                "bytes": len(png),
+                "path": args.out,
+            },
+            indent=2,
+        )
+    )
+    return 0
 
 
 def _stream_logs(client: UnityTetherClient, level: str | None) -> int:

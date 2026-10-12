@@ -7,6 +7,7 @@ process and blocking here can never deadlock the Unity main thread.
 
 from __future__ import annotations
 
+import base64
 import json
 import queue
 import socket
@@ -126,3 +127,9 @@ class UnityTetherClient:
     def invoke(self, type_name: str, method_name: str, args: list | None = None) -> object:
         """Invoke a public static method by reflection (e.g. invoke('UnityEngine.Debug', 'Log', ['hi']))."""
         return self.call("call", {"type": type_name, "method": method_name, "args": args or []})
+
+    def screenshot(self, width: int = 800, height: int = 600) -> tuple[object, bytes]:
+        """Capture a screenshot; returns (metadata, png_bytes)."""
+        result = self.call("screenshot", {"width": width, "height": height})
+        png = base64.b64decode(result["base64"])
+        return result, png

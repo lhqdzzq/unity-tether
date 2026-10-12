@@ -204,6 +204,11 @@ namespace UnityTether
                         response["result"] = CallStaticMethod(request.Params);
                         break;
 
+                    case "screenshot":
+                        response["ok"] = true;
+                        response["result"] = CaptureScreenshot(request.Params);
+                        break;
+
                     default:
                         response["ok"] = false;
                         response["error"] = $"unknown method: {request.Method}";
@@ -418,6 +423,58 @@ namespace UnityTether
             if (t is JArray a)
                 return new Color(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a.Count > 3 ? a[3].Value<float>() : 1f);
             return new Color(t["r"].Value<float>(), t["g"].Value<float>(), t["b"].Value<float>(), t["a"] != null ? t["a"].Value<float>() : 1f);
+        }
+
+        // ------------------------------------------------------------------
+        // Screenshot: render a camera to a RenderTexture, encode PNG, base64.
+        // ------------------------------------------------------------------
+        private static JObject CaptureScreenshot(JToken p)
+        {
+            var width = Mathf.Clamp(p?["width"]?.Value<int>() ?? 800, 1, 4096);
+            var height = Mathf.Clamp(p?["height"]?.Value<int>() ?? 600, 1, 4096);
+
+            Camera camera = Camera.main;
+            GameObject tempGo = null;
+            RenderTexture rt = null;
+            Texture2D tex = null;
+
+            try
+            {
+                if (camera == null)
+                {
+                    tempGo = new GameObject("__tether_screenshot_cam");
+                    camera = tempGo.AddComponent<Camera>();
+                    camera.transform.position = new Vector3(0f, 1f, -5f);
+                    camera.transform.LookAt(Vector3.zero);
+                }
+
+                rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+                camera.targetTexture = rt;
+                var prevActive = RenderTexture.active;
+                RenderTexture.active = rt;
+                camera.Render();
+
+                tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                tex.Apply();
+
+                camera.targetTexture = null;
+                RenderTexture.active = prevActive;
+
+                return new JObject
+                {
+                    ["format"] = "png",
+                    ["width"] = width,
+                    ["height"] = height,
+                    ["base64"] = Convert.ToBase64String(tex.EncodeToPNG()),
+                };
+            }
+            finally
+            {
+                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
+                if (rt != null) { rt.Release(); UnityEngine.Object.DestroyImmediate(rt); }
+                if (tempGo != null) UnityEngine.Object.DestroyImmediate(tempGo);
+            }
         }
 
         // ------------------------------------------------------------------
