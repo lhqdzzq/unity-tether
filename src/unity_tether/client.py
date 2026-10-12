@@ -31,15 +31,25 @@ class UnityTetherClient:
         self._lock = threading.Lock()
         self._next_id = 1
         self._pending: dict[int, dict] = {}
-        self._events: queue.Queue[dict] = queue.Queue()
+        self._events: queue.Queue = queue.Queue()  # holds dict events or None (disconnect sentinel)
+        self._reader_stopped = False
+        self._generation = 0
+        self._reconnect_lock = threading.Lock()
         self._closed = False
 
     # -- lifecycle ---------------------------------------------------------
     def connect(self) -> "UnityTetherClient":
-        self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        reader = threading.Thread(target=self._read_loop, daemon=True, name="tether-reader")
-        reader.start()
+        self._open()
         return self
+
+    def _open(self) -> None:
+        self._closed = False
+        self._reader_stopped = False
+        self._generation += 1
+        gen = self._generation
+        self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+        reader = threading.Thread(target=self._read_loop, args=(gen,), daemon=True, name="tether-reader")
+        reader.start()
 
     def close(self) -> None:
         if self._closed:
@@ -56,31 +66,64 @@ class UnityTetherClient:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    # -- protocol ----------------------------------------------------------
-    def _read_loop(self) -> None:
-        stream = self._sock.makefile("r", encoding="utf-8")
-        for raw in stream:
-            line = raw.strip()
-            if not line:
-                continue
+    def _reconnect(self) -> None:
+        """Reconnect after the bridge dropped the link (Domain Reload / restart)."""
+        with self._reconnect_lock:
+            if self._sock is not None and not self._reader_stopped:
+                return  # already connected
             try:
-                message = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+                if self._sock is not None:
+                    self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
+            self._open()
 
-            message_id = message.get("id")
-            if message_id is not None:
-                slot = self._pending.pop(message_id, None)
-                if slot is not None:
-                    slot["response"] = message
-                    slot["event"].set()
-            else:
-                self._events.put(message)
+    # -- protocol ----------------------------------------------------------
+    def _read_loop(self, gen: int) -> None:
+        try:
+            stream = self._sock.makefile("r", encoding="utf-8")
+            for raw in stream:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                message_id = message.get("id")
+                if message_id is not None:
+                    slot = self._pending.pop(message_id, None)
+                    if slot is not None:
+                        slot["response"] = message
+                        slot["event"].set()
+                else:
+                    self._events.put(message)
+        finally:
+            # Only the current reader may mark the connection as broken; a stale
+            # reader (from a previous generation) must not touch the new one.
+            if gen == self._generation:
+                self._reader_stopped = True
+                if not self._closed:
+                    self._events.put(None)  # sentinel: unexpected disconnect
 
     def call(self, method: str, params: dict | None = None, timeout: float | None = None) -> object:
         if self._sock is None:
             raise TetherError("not connected; call connect() first")
 
+        for attempt in range(2):
+            try:
+                if self._reader_stopped:
+                    self._reconnect()
+                return self._call_once(method, params, timeout)
+            except (OSError, TetherError):
+                if attempt == 0:
+                    self._reader_stopped = True  # force reconnect on retry
+                    continue
+                raise
+
+    def _call_once(self, method: str, params: dict | None, timeout: float | None) -> object:
         with self._lock:
             request_id = self._next_id
             self._next_id += 1
@@ -104,7 +147,13 @@ class UnityTetherClient:
     # -- events ------------------------------------------------------------
     def next_event(self, timeout: float | None = None) -> dict:
         """Return the next push event (log etc.), blocking up to *timeout* seconds."""
-        return self._events.get(timeout=timeout)
+        while True:
+            event = self._events.get(timeout=timeout)
+            if event is None:
+                # Connection lost — reconnect and keep waiting.
+                self._reconnect()
+                continue
+            return event
 
     def events(self) -> Iterator[dict]:
         """Yield push events as they arrive (infinite generator)."""
