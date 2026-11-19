@@ -178,9 +178,12 @@ class UnityTetherClient:
         """Invoke a public static method by reflection (e.g. invoke('UnityEngine.Debug', 'Log', ['hi']))."""
         return self.call("call", {"type": type_name, "method": method_name, "args": args or []})
 
-    def screenshot(self, width: int = 800, height: int = 600) -> tuple[object, bytes]:
-        """Capture a screenshot; returns (metadata, png_bytes)."""
-        result = self.call("screenshot", {"width": width, "height": height})
+    def screenshot(self, width: int = 800, height: int = 600, source: str = "auto") -> tuple[object, bytes]:
+        """Capture a screenshot; returns (metadata, png_bytes).
+
+        source: 'auto' (game view in play mode, else camera), 'game' (game view with IMGUI/UI), or 'camera'.
+        """
+        result = self.call("screenshot", {"width": width, "height": height, "source": source})
         png = base64.b64decode(result["base64"])
         return result, png
 
@@ -227,6 +230,14 @@ class UnityTetherClient:
 
     def instantiate_prefab(self, path: str) -> object:
         return self.call("instantiate_prefab", {"path": path})
+
+    def open_prefab(self, path: str) -> object:
+        """Open a prefab in the Prefab Stage (like double-clicking it in the Project window)."""
+        return self.call("open_prefab", {"path": path})
+
+    def close_prefab(self) -> object:
+        """Close the current Prefab Stage (back to the main scene)."""
+        return self.call("close_prefab", {})
 
     # -- asset control -----------------------------------------------------
     def create_folder(self, path: str) -> object:

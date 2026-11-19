@@ -29,7 +29,7 @@ Working: **P0–P3 complete** (bridge, SDK, CLI, MCP server), plus P4 auto-recon
 
 ## Features
 
-**Bridge** (TCP on `127.0.0.1:8765`, newline JSON): 20 methods — `ping`, `state`, `play`, `stop`, `call`, `screenshot`, `create_object`, `find_objects`, `modify_object`, `delete_object`, `get_scene`, `load_prefab`, `save_prefab`, `instantiate_prefab`, `create_folder`, `create_asset`, `move_asset`, `delete_asset`, `list_assets`, `run_tests` — plus log push events.
+**Bridge** (TCP on `127.0.0.1:8765`, newline JSON): 22 methods — `ping`, `state`, `play`, `stop`, `call`, `screenshot` (game view w/ IMGUI or camera render), `create_object`, `find_objects`, `modify_object`, `delete_object`, `get_scene`, `load_prefab`, `save_prefab`, `instantiate_prefab`, `open_prefab` / `close_prefab` (Prefab Stage editing), `create_folder`, `create_asset`, `move_asset`, `delete_asset`, `list_assets`, `run_tests` — plus log push events.
 
 **CLI** (`tether`): `ping`, `state`, `play`, `stop`, `logs`, `call`, `screenshot`, `scene`, `find-objects`, `create-object`, `delete-object`, `set`, `load-prefab`, `save-prefab`, `instantiate-prefab`, `create-folder`, `create-asset`, `move-asset`, `delete-asset`, `list-assets`, `test`.
 

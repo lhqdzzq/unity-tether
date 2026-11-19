@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     shot_parser.add_argument("--out", "-o", default="screenshot.png", help="output PNG path (default screenshot.png)")
     shot_parser.add_argument("--width", type=int, default=800)
     shot_parser.add_argument("--height", type=int, default=600)
+    shot_parser.add_argument("--source", choices=["auto", "game", "camera"], default="auto", help="game = game view (with IMGUI/UI); camera = camera render")
 
     sub.add_parser("scene", help="show the active scene summary")
 
@@ -65,6 +66,11 @@ def main(argv: list[str] | None = None) -> int:
 
     inst_parser = sub.add_parser("instantiate-prefab", help="instantiate a prefab into the scene")
     inst_parser.add_argument("path")
+
+    openpf_parser = sub.add_parser("open-prefab", help="open a prefab in the Prefab Stage")
+    openpf_parser.add_argument("path")
+
+    sub.add_parser("close-prefab", help="close the current Prefab Stage")
 
     mkdir_parser = sub.add_parser("create-folder", help="create a folder under Assets")
     mkdir_parser.add_argument("path")
@@ -139,6 +145,10 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(client.save_prefab(_parse_ref(args.ref), args.path), indent=2))
         elif args.command == "instantiate-prefab":
             print(json.dumps(client.instantiate_prefab(args.path), indent=2))
+        elif args.command == "open-prefab":
+            print(json.dumps(client.open_prefab(args.path), indent=2))
+        elif args.command == "close-prefab":
+            print(json.dumps(client.close_prefab(), indent=2))
         elif args.command == "create-folder":
             print(json.dumps(client.create_folder(args.path), indent=2))
         elif args.command == "create-asset":
@@ -182,7 +192,7 @@ def _parse_ref(raw: str) -> object:
 
 
 def _save_screenshot(client: UnityTetherClient, args) -> int:
-    meta, png = client.screenshot(width=args.width, height=args.height)
+    meta, png = client.screenshot(width=args.width, height=args.height, source=args.source)
     with open(args.out, "wb") as f:
         f.write(png)
     print(

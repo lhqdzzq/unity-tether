@@ -84,9 +84,12 @@ def execute_csharp(type_name: str, method_name: str, args: list | None = None) -
 
 
 @server.tool()
-def screenshot(width: int = 800, height: int = 600) -> Image:
-    """Capture a screenshot of the current Unity view and return it as an image."""
-    result = _call("screenshot", {"width": width, "height": height})
+def screenshot(width: int = 800, height: int = 600, source: str = "auto") -> Image:
+    """Capture a screenshot and return it as an image.
+
+    source: 'auto' (game view in play mode, else camera), 'game' (game view with IMGUI/UI), or 'camera'.
+    """
+    result = _call("screenshot", {"width": width, "height": height, "source": source})
     png = base64.b64decode(result["base64"])
     return Image(data=png, format="png")
 
@@ -172,6 +175,18 @@ def save_prefab(obj: int, path: str) -> dict:
 def instantiate_prefab(path: str) -> dict:
     """Instantiate a prefab asset into the active scene."""
     return _call("instantiate_prefab", {"path": path})
+
+
+@server.tool()
+def open_prefab(path: str) -> dict:
+    """Open a prefab in the Prefab Stage (like double-clicking it); edits apply to the prefab."""
+    return _call("open_prefab", {"path": path})
+
+
+@server.tool()
+def close_prefab() -> dict:
+    """Close the current Prefab Stage and return to the main scene."""
+    return _call("close_prefab", {})
 
 
 # -- asset control ----------------------------------------------------------

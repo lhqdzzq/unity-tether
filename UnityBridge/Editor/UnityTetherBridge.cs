@@ -11,6 +11,7 @@ using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -248,6 +249,16 @@ namespace UnityTether
                     case "instantiate_prefab":
                         response["ok"] = true;
                         response["result"] = InstantiatePrefab(request.Params);
+                        break;
+
+                    case "open_prefab":
+                        response["ok"] = true;
+                        response["result"] = OpenPrefab(request.Params);
+                        break;
+
+                    case "close_prefab":
+                        response["ok"] = true;
+                        response["result"] = ClosePrefab(request.Params);
                         break;
 
                     case "create_folder":
@@ -503,7 +514,53 @@ namespace UnityTether
         {
             var width = Mathf.Clamp(p?["width"]?.Value<int>() ?? 800, 1, 4096);
             var height = Mathf.Clamp(p?["height"]?.Value<int>() ?? 600, 1, 4096);
+            var source = (p?["source"]?.Value<string>() ?? "auto").ToLowerInvariant();
 
+            // The game view (ScreenCapture) includes IMGUI/UI, which camera.Render()
+            // misses. Prefer it in play mode unless the caller asks for a camera render.
+            var useGameView = source == "game" || (source == "auto" && EditorApplication.isPlaying);
+
+            byte[] png;
+            int capturedWidth, capturedHeight;
+            if (useGameView)
+            {
+                png = CaptureGameView(out capturedWidth, out capturedHeight);
+                if (png == null) // game view unavailable (e.g. headless); fall back to camera
+                    png = CaptureCamera(width, height, out capturedWidth, out capturedHeight);
+            }
+            else
+            {
+                png = CaptureCamera(width, height, out capturedWidth, out capturedHeight);
+            }
+
+            return new JObject
+            {
+                ["format"] = "png",
+                ["width"] = capturedWidth,
+                ["height"] = capturedHeight,
+                ["base64"] = Convert.ToBase64String(png),
+            };
+        }
+
+        private static byte[] CaptureGameView(out int width, out int height)
+        {
+            var tex = ScreenCapture.CaptureScreenshotAsTexture();
+            if (tex == null)
+            {
+                width = 0;
+                height = 0;
+                return null;
+            }
+
+            width = tex.width;
+            height = tex.height;
+            var png = tex.EncodeToPNG();
+            UnityEngine.Object.DestroyImmediate(tex);
+            return png;
+        }
+
+        private static byte[] CaptureCamera(int width, int height, out int outWidth, out int outHeight)
+        {
             Camera camera = Camera.main;
             GameObject tempGo = null;
             RenderTexture rt = null;
@@ -532,13 +589,9 @@ namespace UnityTether
                 camera.targetTexture = null;
                 RenderTexture.active = prevActive;
 
-                return new JObject
-                {
-                    ["format"] = "png",
-                    ["width"] = width,
-                    ["height"] = height,
-                    ["base64"] = Convert.ToBase64String(tex.EncodeToPNG()),
-                };
+                outWidth = width;
+                outHeight = height;
+                return tex.EncodeToPNG();
             }
             finally
             {
@@ -568,6 +621,12 @@ namespace UnityTether
             {
                 go = new GameObject(name);
             }
+
+            // If a Prefab Stage is open, new objects land in the active scene; move
+            // them into the stage scene so edits apply to the prefab.
+            var stage = PrefabStageUtility.GetCurrentPrefabStage();
+            if (stage != null)
+                SceneManager.MoveGameObjectToScene(go, stage.scene);
 
             var position = p?["position"];
             if (position != null && position.Type != JTokenType.Null)
@@ -612,7 +671,7 @@ namespace UnityTether
             }
             else
             {
-                foreach (var sceneRoot in SceneManager.GetActiveScene().GetRootGameObjects())
+                foreach (var sceneRoot in GetCurrentRoots())
                     CollectByName(sceneRoot.transform, name, results);
             }
 
@@ -663,7 +722,8 @@ namespace UnityTether
 
         private static JObject GetSceneSummary()
         {
-            var scene = SceneManager.GetActiveScene();
+            var stage = PrefabStageUtility.GetCurrentPrefabStage();
+            var scene = stage != null ? stage.scene : SceneManager.GetActiveScene();
             var roots = scene.GetRootGameObjects();
             var rootList = new JArray();
             foreach (var root in roots)
@@ -673,6 +733,8 @@ namespace UnityTether
             {
                 ["name"] = scene.name,
                 ["path"] = scene.path,
+                ["inPrefabStage"] = stage != null,
+                ["prefabPath"] = stage != null ? stage.prefabAssetPath : null,
                 ["rootCount"] = roots.Length,
                 ["roots"] = rootList,
             };
@@ -708,7 +770,7 @@ namespace UnityTether
             if (parts.Length == 0)
                 return null;
 
-            foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
+            foreach (var root in GetCurrentRoots())
             {
                 if (root.name != parts[0])
                     continue;
@@ -766,6 +828,46 @@ namespace UnityTether
         // ------------------------------------------------------------------
         // Prefab control (official PrefabUtility path — see invariant I5).
         // ------------------------------------------------------------------
+        private static GameObject[] GetCurrentRoots()
+        {
+            var stage = PrefabStageUtility.GetCurrentPrefabStage();
+            return stage != null ? stage.scene.GetRootGameObjects() : SceneManager.GetActiveScene().GetRootGameObjects();
+        }
+
+        private static JObject OpenPrefab(JToken p)
+        {
+            var path = p?["path"]?.Value<string>();
+            if (string.IsNullOrEmpty(path))
+                throw new Exception("open_prefab requires 'path'");
+
+            var stage = PrefabStageUtility.OpenPrefab(path);
+            if (stage == null)
+                throw new Exception($"failed to open prefab stage: {path}");
+
+            var roots = new JArray();
+            foreach (var root in stage.scene.GetRootGameObjects())
+                roots.Add(BuildObjectInfo(root));
+
+            return new JObject
+            {
+                ["path"] = stage.prefabAssetPath,
+                ["prefabRoot"] = stage.prefabContentsRoot != null ? BuildObjectInfo(stage.prefabContentsRoot) : null,
+                ["roots"] = roots,
+            };
+        }
+
+        private static JObject ClosePrefab(JToken p)
+        {
+            var stage = PrefabStageUtility.GetCurrentPrefabStage();
+            if (stage == null)
+                return new JObject { ["closed"] = false, ["reason"] = "no prefab stage open" };
+
+            // Persist the stage's contents back to the prefab asset before leaving.
+            PrefabUtility.SaveAsPrefabAsset(stage.prefabContentsRoot, stage.prefabAssetPath);
+            StageUtility.GoToMainStage();
+            return new JObject { ["closed"] = true };
+        }
+
         private static JObject LoadPrefab(JToken p)
         {
             var path = p?["path"]?.Value<string>();

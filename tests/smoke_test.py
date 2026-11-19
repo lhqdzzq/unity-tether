@@ -57,6 +57,10 @@ def mock_bridge():
                 result = {"path": message["params"]["path"], "success": True}
             elif method == "instantiate_prefab":
                 result = {"id": 101, "name": "PrefabRoot(Clone)", "path": "/PrefabRoot(Clone)", "active": True, "position": [0.0, 0.0, 0.0], "components": []}
+            elif method == "open_prefab":
+                result = {"path": message["params"]["path"], "prefabRoot": {"id": 200, "name": "X", "path": "/X", "active": True, "position": [0.0, 0.0, 0.0], "components": []}, "roots": []}
+            elif method == "close_prefab":
+                result = {"closed": True}
             elif method == "create_folder":
                 result = {"path": message["params"]["path"], "created": True}
             elif method == "create_asset":
@@ -110,6 +114,8 @@ def main() -> int:
             assert client.load_prefab("Assets/X.prefab")["root"]["name"] == "PrefabRoot"
             assert client.save_prefab(100, "Assets/X.prefab")["success"] is True
             assert client.instantiate_prefab("Assets/X.prefab")["name"] == "PrefabRoot(Clone)"
+            assert client.open_prefab("Assets/X.prefab")["path"] == "Assets/X.prefab"
+            assert client.close_prefab()["closed"] is True
             assert client.create_folder("Assets/X")["created"] is True
             assert client.create_asset("Assets/X/M.mat", "material")["created"] is True
             assert client.move_asset("Assets/X/M.mat", "Assets/X/N.mat")["moved"] is True
