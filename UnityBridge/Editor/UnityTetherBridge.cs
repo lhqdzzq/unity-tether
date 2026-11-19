@@ -54,6 +54,7 @@ namespace UnityTether
             EditorApplication.update += Tick;
             Application.logMessageReceived += OnLogMessage;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
             Start(ResolvePort());
         }
 
@@ -106,14 +107,26 @@ namespace UnityTether
 
         public static void Stop()
         {
+            Shutdown();
+            Debug.Log("[UnityTether] stopped.");
+        }
+
+        // Release the TCP port before the AppDomain unloads. Otherwise the old domain's
+        // listener keeps 8765 bound and the reloaded domain cannot rebind — the client
+        // then keeps talking to a stale bridge (old code) over the surviving socket.
+        private static void OnBeforeAssemblyReload()
+        {
+            Shutdown();
+        }
+
+        private static void Shutdown()
+        {
             _running = false;
             try { _listener?.Stop(); } catch { /* ignore */ }
 
             foreach (var client in Clients.Values)
                 client.Dispose();
             Clients.Clear();
-
-            Debug.Log("[UnityTether] stopped.");
         }
 
         private static void AcceptLoop()
