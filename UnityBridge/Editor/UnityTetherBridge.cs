@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -97,7 +98,7 @@ namespace UnityTether
             }
             catch (Exception e)
             {
-                Debug.LogError($"[UnityTether] failed to start on {port}: {e.Message}");
+                Debug.LogError($"[UnityTether] failed to start on {port}: {e.Message}. Another Unity editor may already be running the bridge; close it or set the UNITY_TETHER_PORT environment variable to a free port.");
                 _running = false;
                 return false;
             }
@@ -153,8 +154,11 @@ namespace UnityTether
                     continue;
 
                 var response = Dispatch(request);
-                request.Client.Outbox.Enqueue(response.ToString(Formatting.None));
+                if (response != null)
+                    request.Client.Outbox.Enqueue(response.ToString(Formatting.None));
             }
+
+            ProcessPendingScreenshots();
         }
 
         private static JObject Dispatch(Request request)
@@ -207,8 +211,28 @@ namespace UnityTether
                         break;
 
                     case "screenshot":
-                        response["ok"] = true;
-                        response["result"] = CaptureScreenshot(request.Params);
+                        {
+                            var src = (request.Params?["source"]?.Value<string>() ?? "auto").ToLowerInvariant();
+                            var wantGameView = src == "game" || (src == "auto" && EditorApplication.isPlaying);
+                            if (wantGameView)
+                            {
+                                if (!EditorApplication.isPlaying)
+                                {
+                                    response["ok"] = false;
+                                    response["error"] = "game-view screenshot requires play mode";
+                                }
+                                else
+                                {
+                                    ScheduleGameViewScreenshot(request);
+                                    return null; // deferred; response is sent after the frame
+                                }
+                            }
+                            else
+                            {
+                                response["ok"] = true;
+                                response["result"] = CaptureCameraScreenshot(request.Params);
+                            }
+                        }
                         break;
 
                     case "create_object":
@@ -508,31 +532,13 @@ namespace UnityTether
         }
 
         // ------------------------------------------------------------------
-        // Screenshot: render a camera to a RenderTexture, encode PNG, base64.
+        // Screenshot: game view (ScreenCapture file write, with IMGUI) or camera render.
         // ------------------------------------------------------------------
-        private static JObject CaptureScreenshot(JToken p)
+        private static JObject CaptureCameraScreenshot(JToken p)
         {
             var width = Mathf.Clamp(p?["width"]?.Value<int>() ?? 800, 1, 4096);
             var height = Mathf.Clamp(p?["height"]?.Value<int>() ?? 600, 1, 4096);
-            var source = (p?["source"]?.Value<string>() ?? "auto").ToLowerInvariant();
-
-            // The game view (ScreenCapture) includes IMGUI/UI, which camera.Render()
-            // misses. Prefer it in play mode unless the caller asks for a camera render.
-            var useGameView = source == "game" || (source == "auto" && EditorApplication.isPlaying);
-
-            byte[] png;
-            int capturedWidth, capturedHeight;
-            if (useGameView)
-            {
-                png = CaptureGameView(out capturedWidth, out capturedHeight);
-                if (png == null) // game view unavailable (e.g. headless); fall back to camera
-                    png = CaptureCamera(width, height, out capturedWidth, out capturedHeight);
-            }
-            else
-            {
-                png = CaptureCamera(width, height, out capturedWidth, out capturedHeight);
-            }
-
+            var png = CaptureCamera(width, height, out var capturedWidth, out var capturedHeight);
             return new JObject
             {
                 ["format"] = "png",
@@ -542,21 +548,96 @@ namespace UnityTether
             };
         }
 
-        private static byte[] CaptureGameView(out int width, out int height)
+        private sealed class PendingScreenshot
         {
-            var tex = ScreenCapture.CaptureScreenshotAsTexture();
-            if (tex == null)
-            {
-                width = 0;
-                height = 0;
-                return null;
-            }
+            public Request Request;
+            public string Path;
+            public double ScheduledAt;
+        }
 
-            width = tex.width;
-            height = tex.height;
-            var png = tex.EncodeToPNG();
-            UnityEngine.Object.DestroyImmediate(tex);
-            return png;
+        private static readonly List<PendingScreenshot> PendingScreenshots = new List<PendingScreenshot>();
+
+        private static void ScheduleGameViewScreenshot(Request request)
+        {
+            // CaptureScreenshot(path) captures the FULL game view (with IMGUI) at end of
+            // frame; CaptureScreenshotAsTexture() returns null in editor contexts, so we
+            // write to a temp file and read it back on a later tick.
+            var path = Path.Combine(Path.GetTempPath(), "tether_" + Guid.NewGuid().ToString("N") + ".png");
+            ScreenCapture.CaptureScreenshot(path);
+            PendingScreenshots.Add(new PendingScreenshot
+            {
+                Request = request,
+                Path = path,
+                ScheduledAt = EditorApplication.timeSinceStartup,
+            });
+        }
+
+        private static void ProcessPendingScreenshots()
+        {
+            for (var i = PendingScreenshots.Count - 1; i >= 0; i--)
+            {
+                var pending = PendingScreenshots[i];
+
+                if (!File.Exists(pending.Path))
+                {
+                    // The file is written at the end of the frame; give it a couple of
+                    // seconds before giving up (headless mode may never write it).
+                    if (EditorApplication.timeSinceStartup - pending.ScheduledAt > 2.0)
+                    {
+                        SendScreenshotError(pending, "game-view capture timed out (is the game view rendering?)");
+                        PendingScreenshots.RemoveAt(i);
+                    }
+                    continue;
+                }
+
+                try
+                {
+                    var bytes = File.ReadAllBytes(pending.Path);
+                    File.Delete(pending.Path);
+
+                    var width = 0;
+                    var height = 0;
+                    if (bytes.Length > 24) // PNG IHDR width/height at bytes 16..23
+                    {
+                        width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+                        height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+                    }
+
+                    var response = new JObject
+                    {
+                        ["id"] = pending.Request.Id,
+                        ["ok"] = true,
+                        ["result"] = new JObject
+                        {
+                            ["format"] = "png",
+                            ["width"] = width,
+                            ["height"] = height,
+                            ["base64"] = Convert.ToBase64String(bytes),
+                        },
+                    };
+                    if (!pending.Request.Client.IsDisposed)
+                        pending.Request.Client.Outbox.Enqueue(response.ToString(Formatting.None));
+                }
+                catch (Exception e)
+                {
+                    SendScreenshotError(pending, "screenshot failed: " + e.Message);
+                }
+
+                PendingScreenshots.RemoveAt(i);
+            }
+        }
+
+        private static void SendScreenshotError(PendingScreenshot pending, string message)
+        {
+            if (pending.Request.Client.IsDisposed)
+                return;
+            var response = new JObject
+            {
+                ["id"] = pending.Request.Id,
+                ["ok"] = false,
+                ["error"] = message,
+            };
+            pending.Request.Client.Outbox.Enqueue(response.ToString(Formatting.None));
         }
 
         private static byte[] CaptureCamera(int width, int height, out int outWidth, out int outHeight)
